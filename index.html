@@ -1,0 +1,1033 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PAN Predictor</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23B8860B'/%3E%3Crect x='3' y='7' width='26' height='18' rx='3.5' fill='none' stroke='white' stroke-width='1.8'/%3E%3Crect x='3' y='13' width='26' height='4' fill='white' opacity='.35'/%3E%3Crect x='6' y='18' width='8' height='3' rx='1' fill='white' opacity='.6'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root{
+  /* Obsidian base */
+  --base:#07060a;
+  --base2:#0d0c10;
+
+  /* Glass layers */
+  --gl1:rgba(255,248,230,0.055);
+  --gl2:rgba(255,248,230,0.032);
+  --gl3:rgba(255,248,230,0.018);
+
+  /* Specular rims — warm gold-tinted */
+  --rim:rgba(230,195,110,0.22);
+  --rim2:rgba(230,195,110,0.10);
+  --rim3:rgba(230,195,110,0.045);
+
+  --shadow-glass:0 8px 32px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.35);
+  --shadow-float:0 20px 60px rgba(0,0,0,0.6), 0 4px 16px rgba(0,0,0,0.35);
+
+  --blur-sm:blur(12px);
+  --blur-md:blur(24px);
+  --blur-lg:blur(40px);
+  --blur-xl:blur(60px);
+
+  --font-ui:'Sora',sans-serif;
+  --font-mono:'JetBrains Mono',monospace;
+
+  /* Text — vanilla cream hierarchy */
+  --t1:rgba(250,240,210,0.96);
+  --t2:rgba(230,210,165,0.62);
+  --t3:rgba(210,185,130,0.32);
+  --t4:rgba(200,170,110,0.15);
+
+  /* Champagne gold accent */
+  --a1:#f0d07a;
+  --a2:#c9993a;
+  --a3:#7a5c12;
+  --glow:rgba(201,153,58,0.42);
+  --glow2:rgba(122,92,18,0.18);
+
+  --r-sm:10px;
+  --r-md:16px;
+  --r-lg:22px;
+  --r-xl:28px;
+  --r-pill:999px;
+}
+
+html,body{
+  min-height:100vh;
+  background:var(--base);
+  color:var(--t1);
+  font-family:var(--font-ui);
+  overflow-x:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ─── BACKGROUND ─────────────────────── */
+.bg{position:fixed;inset:0;z-index:0;overflow:hidden}
+.bg-orb{position:absolute;border-radius:50%;filter:blur(90px);opacity:0;animation:orbFloat 20s ease-in-out infinite}
+.bg-orb1{
+  width:600px;height:600px;
+  background:radial-gradient(circle,rgba(184,140,20,0.22) 0%,transparent 70%);
+  top:-150px;left:-100px;animation-delay:0s;animation-duration:22s;
+}
+.bg-orb2{
+  width:500px;height:500px;
+  background:radial-gradient(circle,rgba(100,78,18,0.16) 0%,transparent 70%);
+  bottom:-100px;right:-80px;animation-delay:-8s;animation-duration:18s;
+}
+.bg-orb3{
+  width:400px;height:400px;
+  background:radial-gradient(circle,rgba(240,208,122,0.06) 0%,transparent 70%);
+  top:50%;left:50%;transform:translate(-50%,-50%);animation-delay:-14s;animation-duration:26s;
+}
+@keyframes orbFloat{
+  0%,100%{opacity:1;transform:translate(0,0) scale(1)}
+  33%{transform:translate(30px,-20px) scale(1.05)}
+  66%{transform:translate(-20px,30px) scale(0.97)}
+}
+.bg-noise{
+  position:absolute;inset:0;opacity:.02;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size:200px;pointer-events:none;
+}
+
+/* ─── GLASS MIXINS ───────────────────── */
+.glass{
+  background:var(--gl1);
+  -webkit-backdrop-filter:var(--blur-lg);backdrop-filter:var(--blur-lg);
+  border:1px solid var(--rim2);
+  box-shadow:inset 0 1px 0 rgba(240,208,122,0.12),inset 0 -1px 0 rgba(0,0,0,0.25),var(--shadow-glass);
+  border-radius:var(--r-lg);
+}
+.glass-sm{
+  background:var(--gl2);
+  -webkit-backdrop-filter:var(--blur-md);backdrop-filter:var(--blur-md);
+  border:1px solid var(--rim3);
+  box-shadow:inset 0 1px 0 rgba(240,208,122,0.07),var(--shadow-glass);
+  border-radius:var(--r-md);
+}
+
+/* ─── APP SHELL ──────────────────────── */
+.app{position:relative;z-index:2;min-height:100vh;display:flex;flex-direction:column;animation:appReveal .6s ease both}
+@keyframes appReveal{from{opacity:0}to{opacity:1}}
+
+/* ─── HEADER ─────────────────────────── */
+header{
+  padding:0 24px;height:60px;
+  display:flex;align-items:center;gap:12px;
+  border-bottom:1px solid var(--rim3);
+  position:sticky;top:0;z-index:100;
+  background:rgba(7,6,10,0.65);
+  -webkit-backdrop-filter:var(--blur-xl);backdrop-filter:var(--blur-xl);
+  box-shadow:0 1px 0 rgba(240,208,122,0.07);
+  animation:headerSlide .5s ease both;
+}
+@keyframes headerSlide{from{opacity:0;transform:translateY(-100%)}to{opacity:1;transform:translateY(0)}}
+
+.hd-logo{
+  width:36px;height:36px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  border-radius:10px;
+  background:linear-gradient(135deg,var(--a3),var(--a2),var(--a1));
+  box-shadow:0 0 20px var(--glow),inset 0 1px 0 rgba(255,255,255,0.25);
+  transition:all .4s cubic-bezier(.34,1.56,.64,1);
+  animation:logoPop .6s .2s cubic-bezier(.34,1.56,.64,1) both;
+}
+@keyframes logoPop{from{opacity:0;transform:scale(.5) rotate(-15deg)}to{opacity:1;transform:scale(1) rotate(0)}}
+.hd-logo:hover{transform:scale(1.08) rotate(-3deg);box-shadow:0 0 32px var(--glow),inset 0 1px 0 rgba(255,255,255,0.3)}
+.hd-logo svg{width:20px;height:20px}
+
+.hd-title{
+  font-size:15px;font-weight:600;letter-spacing:-.03em;
+  background:linear-gradient(90deg,var(--t1),var(--t2));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+}
+
+.warn-pill{
+  display:flex;align-items:center;gap:5px;
+  background:rgba(201,153,58,0.1);
+  -webkit-backdrop-filter:var(--blur-sm);backdrop-filter:var(--blur-sm);
+  border:1px solid rgba(201,153,58,0.2);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.05);
+  border-radius:var(--r-pill);
+  padding:4px 12px;font-size:10px;font-weight:500;
+  color:rgba(240,208,122,0.8);letter-spacing:.04em;margin-left:4px;
+}
+.warn-dot{
+  width:5px;height:5px;border-radius:50%;
+  background:rgba(240,208,122,0.8);
+  animation:pulse 2s ease-in-out infinite;
+}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.7)}}
+
+.hd-ver{margin-left:auto;font-family:var(--font-mono);font-size:10px;color:var(--t3);letter-spacing:.1em}
+
+/* ─── MAIN LAYOUT ────────────────────── */
+.main{display:grid;grid-template-columns:420px 1fr;flex:1;max-height:calc(100vh - 60px)}
+@media(max-width:860px){.main{grid-template-columns:1fr;max-height:none}.right{max-height:80vh}}
+
+/* ─── LEFT PANEL ─────────────────────── */
+.left{
+  border-right:1px solid var(--rim3);
+  padding:20px 18px;
+  display:flex;flex-direction:column;gap:16px;
+  overflow-y:auto;scrollbar-width:thin;
+  scrollbar-color:rgba(240,208,122,0.07) transparent;
+}
+.left::-webkit-scrollbar{width:3px}
+.left::-webkit-scrollbar-thumb{background:rgba(240,208,122,0.08);border-radius:2px}
+.left>*{animation:panelIn .5s ease both}
+.left>*:nth-child(1){animation-delay:.1s}
+.left>*:nth-child(2){animation-delay:.15s}
+.left>*:nth-child(3){animation-delay:.2s}
+.left>*:nth-child(4){animation-delay:.25s}
+.left>*:nth-child(5){animation-delay:.3s}
+.left>*:nth-child(6){animation-delay:.35s}
+@keyframes panelIn{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
+
+/* ─── CREDIT CARD ────────────────────── */
+.card-wrap{
+  position:relative;border-radius:22px;overflow:hidden;
+  box-shadow:0 30px 80px rgba(0,0,0,0.65),0 8px 24px rgba(0,0,0,0.45),0 0 0 1px rgba(240,208,122,0.1);
+  transition:transform .4s cubic-bezier(.34,1.2,.64,1),box-shadow .4s ease;
+  cursor:default;user-select:none;transform-style:preserve-3d;
+}
+.card-wrap:hover{
+  transform:translateY(-6px) rotateX(4deg) rotateY(-2deg);
+  box-shadow:0 48px 100px rgba(0,0,0,0.7),0 12px 32px rgba(0,0,0,0.5),0 0 60px var(--glow2),0 0 0 1px rgba(240,208,122,0.16);
+}
+#cardSvg{display:block;width:100%;height:auto}
+.card-wrap::after{
+  content:'';position:absolute;inset:0;
+  background:linear-gradient(105deg,transparent 30%,rgba(240,208,122,0.03) 40%,rgba(240,208,122,0.07) 50%,rgba(240,208,122,0.03) 60%,transparent 70%);
+  background-size:200% 100%;border-radius:22px;
+  animation:shimmerScan 4s ease-in-out infinite;pointer-events:none;
+}
+@keyframes shimmerScan{0%{background-position:-100% 0}60%,100%{background-position:200% 0}}
+
+/* ─── SECTION HEADERS ────────────────── */
+.sec-hd{
+  font-size:9.5px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--t3);margin-bottom:10px;
+  display:flex;align-items:center;gap:8px;
+}
+.sec-hd::after{content:'';flex:1;height:1px;background:var(--rim3)}
+.sec-hd span{font-size:9px;letter-spacing:.05em;text-transform:none;color:var(--t4);font-weight:400}
+
+/* ─── PAN INPUT ──────────────────────── */
+.input-wrap{position:relative}
+.pan-input{
+  width:100%;
+  background:rgba(240,208,122,0.04);
+  -webkit-backdrop-filter:var(--blur-md);backdrop-filter:var(--blur-md);
+  border:1px solid var(--rim2);
+  box-shadow:inset 0 1px 0 rgba(240,208,122,0.09),inset 0 2px 8px rgba(0,0,0,0.25);
+  border-radius:var(--r-md);
+  padding:13px 44px 13px 16px;
+  font-family:var(--font-mono);font-size:18px;letter-spacing:3px;
+  color:var(--t1);outline:none;
+  transition:border-color .25s,box-shadow .25s,background .25s;
+}
+.pan-input:focus{
+  border-color:rgba(201,153,58,0.5);
+  background:rgba(240,208,122,0.07);
+  box-shadow:inset 0 1px 0 rgba(240,208,122,0.12),0 0 0 3px rgba(201,153,58,0.16),0 8px 24px rgba(0,0,0,0.3);
+}
+.pan-input::placeholder{color:var(--t4);font-size:13px;letter-spacing:2px}
+.input-clear{
+  position:absolute;right:12px;top:50%;transform:translateY(-50%);
+  background:rgba(240,208,122,0.06);border:none;border-radius:6px;
+  width:24px;height:24px;display:flex;align-items:center;justify-content:center;
+  color:var(--t3);cursor:pointer;font-size:12px;
+  transition:all .15s;opacity:0;pointer-events:none;
+}
+.pan-input:not(:placeholder-shown)~.input-clear{opacity:1;pointer-events:auto}
+.input-clear:hover{background:rgba(240,208,122,0.14);color:var(--t1)}
+.input-meta{display:flex;justify-content:space-between;margin-top:7px;font-size:10px;color:var(--t3);font-family:var(--font-mono);padding:0 2px}
+.meta-combos{color:var(--a1);font-weight:500}
+
+/* ─── PRESETS ────────────────────────── */
+.presets{display:flex;flex-wrap:wrap;gap:6px}
+.preset{
+  background:var(--gl2);
+  -webkit-backdrop-filter:var(--blur-sm);backdrop-filter:var(--blur-sm);
+  border:1px solid var(--rim3);
+  box-shadow:inset 0 1px 0 rgba(240,208,122,0.07);
+  border-radius:var(--r-pill);
+  padding:5px 13px;font-size:11px;font-family:var(--font-mono);
+  color:var(--t2);cursor:pointer;
+  transition:all .2s cubic-bezier(.34,1.4,.64,1);
+}
+.preset:hover{
+  background:rgba(240,208,122,0.09);border-color:var(--rim);color:var(--t1);
+  transform:translateY(-2px) scale(1.03);
+  box-shadow:0 6px 16px rgba(0,0,0,0.3),inset 0 1px 0 rgba(240,208,122,0.14);
+}
+.preset:active{transform:translateY(0) scale(.98)}
+
+/* ─── INFO GRID ──────────────────────── */
+.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.info-cell{
+  background:var(--gl2);
+  -webkit-backdrop-filter:var(--blur-sm);backdrop-filter:var(--blur-sm);
+  border:1px solid var(--rim3);
+  box-shadow:inset 0 1px 0 rgba(240,208,122,0.07);
+  border-radius:var(--r-md);padding:11px 14px;transition:all .2s;
+}
+.info-cell:hover{background:rgba(240,208,122,0.05);border-color:var(--rim2)}
+.ic-label{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--t3);margin-bottom:5px;font-weight:500}
+.ic-val{font-size:14px;font-weight:600;color:var(--t1);font-family:var(--font-mono);transition:color .2s}
+
+/* ─── RUN BUTTON ─────────────────────── */
+.run-btn{
+  width:100%;
+  background:linear-gradient(135deg,var(--a3) 0%,var(--a2) 45%,var(--a1) 100%);
+  border:none;border-radius:var(--r-md);padding:14px;
+  font-family:var(--font-ui);font-size:13px;font-weight:600;letter-spacing:.04em;
+  color:#1a1200;cursor:pointer;position:relative;overflow:hidden;
+  box-shadow:0 8px 30px var(--glow),inset 0 1px 0 rgba(255,255,255,0.3);
+  transition:all .25s cubic-bezier(.34,1.2,.64,1);
+}
+.run-btn::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,0.18),transparent 60%);opacity:0;transition:opacity .2s}
+.run-btn::after{content:'';position:absolute;width:100px;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.12),transparent);top:0;left:-100px;transition:left .5s ease}
+.run-btn:not(:disabled):hover::before{opacity:1}
+.run-btn:not(:disabled):hover::after{left:calc(100% + 100px)}
+.run-btn:not(:disabled):hover{
+  transform:translateY(-3px) scale(1.01);
+  box-shadow:0 16px 48px var(--glow),0 4px 16px rgba(0,0,0,0.3),inset 0 1px 0 rgba(255,255,255,0.35);
+}
+.run-btn:not(:disabled):active{transform:translateY(-1px) scale(.99)}
+.run-btn:disabled{background:rgba(240,208,122,0.06);box-shadow:none;color:var(--t3);cursor:not-allowed;transform:none}
+.btn-icon{display:inline-block;margin-right:6px;transition:transform .3s}
+.run-btn.loading .btn-icon{animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ─── PROGRESS ───────────────────────── */
+.prog-wrap{height:3px;border-radius:2px;background:rgba(240,208,122,0.06);overflow:hidden;display:none;margin-top:8px;border:1px solid var(--rim3)}
+.prog-bar{
+  height:100%;width:0%;border-radius:2px;
+  background:linear-gradient(90deg,var(--a3),var(--a2),var(--a1));
+  box-shadow:0 0 10px var(--a2);
+  transition:width .12s ease;position:relative;
+}
+.prog-bar::after{content:'';position:absolute;right:0;top:50%;width:6px;height:6px;border-radius:50%;background:var(--a1);transform:translateY(-50%);box-shadow:0 0 8px var(--a1)}
+
+/* ─── RIGHT PANEL ────────────────────── */
+.right{display:flex;flex-direction:column;max-height:calc(100vh - 60px);position:sticky;top:60px}
+
+.res-topbar{
+  padding:11px 20px;border-bottom:1px solid var(--rim3);
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  background:rgba(7,6,10,0.5);
+  -webkit-backdrop-filter:var(--blur-lg);backdrop-filter:var(--blur-lg);
+  box-shadow:0 1px 0 rgba(240,208,122,0.04);flex-shrink:0;
+}
+.res-count{font-size:11px;color:var(--t2);font-family:var(--font-mono)}
+.res-count strong{color:var(--t1);font-size:15px;font-weight:700}
+
+.sort-wrap{display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap}
+.sort-lbl{font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--t3)}
+.sort-pills{
+  display:flex;gap:2px;
+  background:rgba(240,208,122,0.04);
+  -webkit-backdrop-filter:var(--blur-sm);backdrop-filter:var(--blur-sm);
+  border:1px solid var(--rim3);
+  box-shadow:inset 0 1px 0 rgba(240,208,122,0.06);
+  border-radius:var(--r-pill);padding:3px;
+}
+.sp{background:transparent;border:none;border-radius:var(--r-pill);padding:4px 12px;font-family:var(--font-mono);font-size:10px;color:var(--t3);cursor:pointer;transition:all .2s;white-space:nowrap}
+.sp:hover{color:var(--t2)}
+.sp.active{background:rgba(240,208,122,0.13);color:var(--t1);box-shadow:0 2px 8px rgba(0,0,0,0.35),inset 0 1px 0 rgba(240,208,122,0.12)}
+
+.copy-all-btn{
+  display:none;
+  background:var(--gl2);
+  -webkit-backdrop-filter:var(--blur-sm);backdrop-filter:var(--blur-sm);
+  border:1px solid var(--rim3);
+  box-shadow:inset 0 1px 0 rgba(240,208,122,0.07);
+  border-radius:var(--r-pill);padding:5px 14px;
+  font-family:var(--font-mono);font-size:10px;color:var(--t2);cursor:pointer;transition:all .2s;
+}
+.copy-all-btn:hover{background:rgba(240,208,122,0.1);color:var(--t1);transform:translateY(-1px)}
+
+/* ─── LUHN STRIP ─────────────────────── */
+.luhn-strip{
+  display:none;flex-shrink:0;padding:12px 20px;
+  border-bottom:1px solid var(--rim3);background:rgba(240,208,122,0.015);
+  animation:slideDown .3s ease;
+}
+@keyframes slideDown{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+.ls-hd{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--t3);margin-bottom:8px}
+.luhn-cells{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.lc{border:1px solid var(--rim3);border-radius:8px;padding:5px 7px;min-width:30px;text-align:center;background:rgba(240,208,122,0.03);transition:all .2s}
+.lc.dbl{border-color:rgba(201,153,58,0.35);background:rgba(201,153,58,0.1);box-shadow:0 0 8px rgba(201,153,58,0.12)}
+.lc-top{font-size:13px;font-weight:700;line-height:1;font-family:var(--font-mono)}
+.lc-bot{font-size:8px;color:var(--t3);margin-top:2px;font-family:var(--font-mono)}
+.lc.dbl .lc-top{color:var(--a1)}
+.lc.dbl .lc-bot{color:rgba(201,153,58,0.65)}
+.luhn-sum{font-size:10px;color:var(--a1);padding:0 10px;font-family:var(--font-mono);font-weight:600}
+
+/* ─── FILTER BAR ─────────────────────── */
+.filter-bar{display:none;flex-shrink:0;padding:10px 20px;border-bottom:1px solid var(--rim3);align-items:center;gap:10px}
+.filter-input{
+  flex:1;
+  background:rgba(240,208,122,0.04);
+  -webkit-backdrop-filter:var(--blur-sm);backdrop-filter:var(--blur-sm);
+  border:1px solid var(--rim3);
+  box-shadow:inset 0 1px 0 rgba(240,208,122,0.06);
+  border-radius:var(--r-sm);padding:7px 12px;
+  font-family:var(--font-mono);font-size:11px;color:var(--t1);outline:none;transition:all .2s;
+}
+.filter-input:focus{
+  border-color:rgba(201,153,58,0.4);background:rgba(240,208,122,0.07);
+  box-shadow:0 0 0 2px rgba(201,153,58,0.12),inset 0 1px 0 rgba(240,208,122,0.09);
+}
+.filter-input::placeholder{color:var(--t4)}
+.filter-count{font-size:10px;color:var(--t3);white-space:nowrap;font-family:var(--font-mono)}
+
+.limit-warn{
+  display:none;flex-shrink:0;padding:8px 20px;
+  font-size:10px;color:rgba(240,208,122,0.65);font-family:var(--font-mono);letter-spacing:.04em;
+  background:rgba(201,153,58,0.04);border-bottom:1px solid rgba(201,153,58,0.08);
+}
+
+/* ─── RESULTS ────────────────────────── */
+.results-list{overflow-y:auto;flex:1}
+.results-list::-webkit-scrollbar{width:3px}
+.results-list::-webkit-scrollbar-thumb{background:rgba(240,208,122,0.08);border-radius:2px}
+.result-item{
+  display:flex;align-items:center;padding:10px 20px;
+  border-bottom:1px solid rgba(240,208,122,0.03);
+  cursor:pointer;transition:background .12s;
+  animation:resultIn .25s ease both;
+}
+@keyframes resultIn{from{opacity:0;transform:translateX(12px)}to{opacity:1;transform:translateX(0)}}
+.result-item:hover{background:rgba(240,208,122,0.04)}
+.result-item.sel{background:rgba(201,153,58,0.08);border-left:2px solid var(--a1);padding-left:18px}
+.result-item.sel .ri-num{color:var(--t1)}
+.ri-num{font-family:var(--font-mono);font-size:14px;letter-spacing:2.5px;flex:1;color:rgba(250,240,210,0.75);transition:color .15s}
+.result-item:hover .ri-num{color:var(--t1)}
+.ri-badge{
+  font-size:8px;letter-spacing:.1em;text-transform:uppercase;
+  background:rgba(201,153,58,0.1);border:1px solid rgba(201,153,58,0.2);
+  border-radius:4px;padding:2px 7px;color:rgba(240,208,122,0.8);
+  margin-left:10px;font-family:var(--font-mono);box-shadow:inset 0 1px 0 rgba(255,255,255,0.06);
+}
+.ri-idx{font-size:9px;color:var(--t3);min-width:32px;text-align:right;margin-left:8px;font-family:var(--font-mono)}
+.ri-copy{background:none;border:none;color:var(--t3);cursor:pointer;font-size:14px;padding:3px 8px;transition:all .15s;border-radius:7px}
+.ri-copy:hover{color:var(--a1);background:rgba(201,153,58,0.1);transform:scale(1.1)}
+
+/* ─── EMPTY STATE ────────────────────── */
+.empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:80px 24px;text-align:center;gap:18px}
+.empty-icon{
+  width:60px;height:60px;
+  background:var(--gl2);
+  -webkit-backdrop-filter:var(--blur-md);backdrop-filter:var(--blur-md);
+  border:1px solid var(--rim3);
+  box-shadow:inset 0 1px 0 rgba(240,208,122,0.09);
+  border-radius:18px;display:flex;align-items:center;justify-content:center;
+  animation:emptyFloat 3s ease-in-out infinite;
+}
+@keyframes emptyFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+.empty-text{font-size:11px;color:var(--t3);font-family:var(--font-mono);line-height:2;letter-spacing:.08em}
+.no-results{padding:60px 20px;text-align:center;font-size:11px;color:var(--t3);font-family:var(--font-mono);letter-spacing:.08em;line-height:2}
+
+/* ─── TOAST ──────────────────────────── */
+.toast{
+  position:fixed;bottom:28px;right:28px;
+  background:rgba(18,15,8,0.88);
+  -webkit-backdrop-filter:var(--blur-xl);backdrop-filter:var(--blur-xl);
+  border:1px solid var(--rim);
+  box-shadow:inset 0 1px 0 rgba(240,208,122,0.15),0 16px 48px rgba(0,0,0,0.65),0 4px 12px rgba(0,0,0,0.35);
+  border-radius:14px;color:var(--t1);font-family:var(--font-mono);font-size:12px;
+  padding:10px 18px;z-index:999;
+  opacity:0;transform:translateY(14px) scale(.93);
+  transition:all .3s cubic-bezier(.34,1.56,.64,1);
+  pointer-events:none;letter-spacing:.05em;
+}
+.toast.show{opacity:1;transform:translateY(0) scale(1)}
+</style>
+</head>
+<body>
+<div class="bg">
+  <div class="bg-orb bg-orb1"></div>
+  <div class="bg-orb bg-orb2"></div>
+  <div class="bg-orb bg-orb3"></div>
+  <div class="bg-noise"></div>
+</div>
+
+<div class="app">
+<header>
+  <div class="hd-logo" id="hdLogo">
+    <svg viewBox="0 0 24 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x=".75" y=".75" width="22.5" height="16.5" rx="3" stroke="rgba(255,248,220,0.9)" stroke-width="1.5"/>
+      <rect x=".75" y="5" width="22.5" height="3.5" fill="rgba(255,248,220,0.3)"/>
+      <rect x="3" y="11.5" width="7" height="2.5" rx="1" fill="rgba(255,248,220,0.55)"/>
+      <circle cx="18" cy="12.75" r="2" fill="rgba(255,248,220,0.28)"/>
+      <circle cx="20.5" cy="12.75" r="2" fill="rgba(255,248,220,0.18)"/>
+    </svg>
+  </div>
+  <div class="hd-title">PAN Predictor</div>
+  <div class="warn-pill"><div class="warn-dot"></div>Own cards only</div>
+  <div class="hd-ver">LUHN v2.1</div>
+</header>
+
+<div class="main">
+  <!-- LEFT -->
+  <div class="left">
+    <!-- Card Visual -->
+    <div class="card-wrap" id="cardWrap">
+      <svg id="cardSvg" viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <linearGradient id="cg" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#1a1610" id="cg0"/>
+            <stop offset="50%" stop-color="#120f0c" id="cg05"/>
+            <stop offset="100%" stop-color="#080808" id="cg1"/>
+          </linearGradient>
+          <linearGradient id="glare1" x1="0%" y1="0%" x2="60%" y2="100%">
+            <stop offset="0%" stop-color="rgba(240,208,122,0.10)"/>
+            <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+          </linearGradient>
+          <linearGradient id="glare2" x1="100%" y1="0%" x2="40%" y2="100%">
+            <stop offset="0%" stop-color="rgba(255,255,255,0.04)"/>
+            <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+          </linearGradient>
+          <linearGradient id="chipG" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#e8c060"/>
+            <stop offset="50%" stop-color="#c8942a"/>
+            <stop offset="100%" stop-color="#9a7020"/>
+          </linearGradient>
+          <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="2.5" result="blur"/>
+            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+          <filter id="chipGlow">
+            <feGaussianBlur stdDeviation="1.5" result="blur"/>
+            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+          <clipPath id="cardClip"><rect width="400" height="240" rx="20"/></clipPath>
+          <radialGradient id="radGlow" cx="50%" cy="50%" r="60%">
+            <stop offset="0%" stop-color="rgba(201,153,58,0.09)" id="radC"/>
+            <stop offset="100%" stop-color="rgba(0,0,0,0)"/>
+          </radialGradient>
+        </defs>
+        <g clip-path="url(#cardClip)">
+          <rect width="400" height="240" rx="20" fill="url(#cg)"/>
+          <rect width="400" height="240" fill="url(#radGlow)"/>
+          <rect width="400" height="240" fill="url(#glare1)"/>
+          <rect width="400" height="240" fill="url(#glare2)"/>
+          <circle cx="360" cy="-10" r="130" fill="none" stroke="rgba(240,208,122,0.06)" stroke-width="1"/>
+          <circle cx="360" cy="-10" r="100" fill="none" stroke="rgba(240,208,122,0.05)" stroke-width="1"/>
+          <circle cx="360" cy="-10" r="70"  fill="none" stroke="rgba(240,208,122,0.04)" stroke-width="1"/>
+          <circle cx="30"  cy="260" r="140" fill="none" stroke="rgba(240,208,122,0.04)" stroke-width="1"/>
+          <circle cx="30"  cy="260" r="100" fill="none" stroke="rgba(240,208,122,0.03)" stroke-width="1"/>
+          <g transform="translate(347,26)" opacity="0.55">
+            <path d="M0,10 Q10,0 0,-10"   fill="none" stroke="rgba(240,208,122,0.8)" stroke-width="2" stroke-linecap="round"/>
+            <path d="M5,14 Q19,-1 5,-14"  fill="none" stroke="rgba(240,208,122,0.6)" stroke-width="2" stroke-linecap="round"/>
+            <path d="M10,18 Q28,-2 10,-18" fill="none" stroke="rgba(240,208,122,0.4)" stroke-width="2" stroke-linecap="round"/>
+          </g>
+          <g transform="translate(30,58)" filter="url(#chipGlow)">
+            <rect width="48" height="37" rx="5" fill="url(#chipG)"/>
+            <rect x="0" y="12" width="48" height="1.5" fill="rgba(0,0,0,0.18)"/>
+            <rect x="0" y="24" width="48" height="1.5" fill="rgba(0,0,0,0.18)"/>
+            <rect x="15" y="0" width="1.5" height="37" fill="rgba(0,0,0,0.15)"/>
+            <rect x="31" y="0" width="1.5" height="37" fill="rgba(0,0,0,0.15)"/>
+            <rect x="5" y="5" width="38" height="27" rx="3" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="0.8"/>
+            <rect x="0" y="0" width="24" height="18" rx="5" fill="rgba(255,255,255,0.08)"/>
+          </g>
+          <text id="cvNum" font-family="'JetBrains Mono','Courier New',monospace"
+            font-size="24" letter-spacing="3.5" fill="rgba(250,240,210,0.9)"
+            x="30" y="164" filter="url(#glow)">•••• •••• •••• ••••</text>
+          <text font-family="'JetBrains Mono','Courier New',monospace"
+            font-size="7.5" fill="rgba(201,153,58,0.45)" x="30" y="190" letter-spacing="1.2">VALID THRU</text>
+          <text font-family="'JetBrains Mono','Courier New',monospace"
+            font-size="14" fill="rgba(240,208,122,0.65)" x="30" y="207">—— / ——</text>
+          <text font-family="'JetBrains Mono','Courier New',monospace"
+            font-size="9" fill="rgba(201,153,58,0.3)" x="30" y="224" letter-spacing="1">CARDHOLDER NAME</text>
+          <g id="netLogo" transform="translate(300,185)"></g>
+        </g>
+        <rect width="400" height="240" rx="20" fill="none" stroke="rgba(240,208,122,0.14)" stroke-width="1"/>
+        <rect x="1" y="1" width="398" height="30" rx="20" fill="rgba(240,208,122,0.03)"/>
+      </svg>
+    </div>
+
+    <!-- PAN Input -->
+    <div>
+      <div class="sec-hd">Card Number <span>? = unknown digit</span></div>
+      <div class="input-wrap">
+        <input class="pan-input" id="panInput" type="text"
+          placeholder="4532????????3456" maxlength="25"
+          autocomplete="off" spellcheck="false"/>
+        <button class="input-clear" onclick="clearInput()">✕</button>
+      </div>
+      <div class="input-meta">
+        <span id="metaCount">0 digits</span>
+        <span class="meta-combos" id="metaCombos"></span>
+      </div>
+    </div>
+
+    <!-- Presets -->
+    <div>
+      <div class="sec-hd">Quick Presets</div>
+      <div class="presets">
+        <button class="preset" onclick="setPreset('4532????????3456')">Visa ×8</button>
+        <button class="preset" onclick="setPreset('5412????????2589')">MC ×8</button>
+        <button class="preset" onclick="setPreset('453201??????3456')">×6</button>
+        <button class="preset" onclick="setPreset('45320112????3456')">×4</button>
+        <button class="preset" onclick="setPreset('4532011234??3456')">×2</button>
+        <button class="preset" onclick="setPreset('453201123456789?')">×1</button>
+      </div>
+    </div>
+
+    <!-- Info grid -->
+    <div class="info-grid">
+      <div class="info-cell"><div class="ic-label">BIN</div><div class="ic-val" id="infoBin">—</div></div>
+      <div class="info-cell"><div class="ic-label">Network</div><div class="ic-val" id="infoType">—</div></div>
+      <div class="info-cell"><div class="ic-label">Unknowns</div><div class="ic-val" id="infoQ">0</div></div>
+      <div class="info-cell"><div class="ic-label">Combinations</div><div class="ic-val" id="infoCombos">—</div></div>
+    </div>
+
+    <div>
+      <button class="run-btn" id="runBtn" onclick="runSolve()" disabled>
+        <span class="btn-icon">▶</span> Compute All Candidates
+      </button>
+      <div class="prog-wrap" id="progWrap"><div class="prog-bar" id="progBar"></div></div>
+    </div>
+  </div>
+
+  <!-- RIGHT -->
+  <div class="right">
+    <div class="res-topbar">
+      <div class="res-count" id="resCount">No results yet</div>
+      <div class="sort-wrap" id="sortWrap" style="display:none">
+        <div class="sort-lbl">Sort</div>
+        <div class="sort-pills">
+          <button class="sp active" id="spAsc"  onclick="applySort('asc')">0→9</button>
+          <button class="sp"        id="spDesc" onclick="applySort('desc')">9→0</button>
+          <button class="sp"        id="spLast" onclick="applySort('last')">Last 4</button>
+          <button class="sp"        id="spEven" onclick="applySort('even')">Even</button>
+          <button class="sp"        id="spOdd"  onclick="applySort('odd')">Odd</button>
+        </div>
+      </div>
+      <button class="copy-all-btn" id="copyAllBtn" onclick="copyAll()">⎘ Copy All</button>
+    </div>
+
+    <div class="luhn-strip" id="luhnStrip">
+      <div class="ls-hd">Luhn — click a result to inspect</div>
+      <div class="luhn-cells" id="luhnCells"></div>
+    </div>
+
+    <div class="filter-bar" id="filterBar">
+      <input class="filter-input" id="filterInput" type="text"
+        placeholder="Filter digits…" oninput="applyFilter()"/>
+      <span class="filter-count" id="filterCount"></span>
+    </div>
+
+    <div class="limit-warn" id="limitWarn"></div>
+
+    <div class="results-list" id="resultsList">
+      <div class="empty-state">
+        <div class="empty-icon">
+          <svg width="26" height="20" viewBox="0 0 26 20" fill="none">
+            <rect x=".75" y=".75" width="24.5" height="18.5" rx="3.5"
+              stroke="rgba(201,153,58,0.65)" stroke-width="1.5"/>
+            <rect x=".75" y="5.5" width="24.5" height="4"
+              fill="rgba(201,153,58,0.18)"/>
+            <rect x="3" y="12" width="8" height="3" rx="1"
+              fill="rgba(240,208,122,0.38)"/>
+          </svg>
+        </div>
+        <div class="empty-text">
+          ENTER PAN WITH ? PLACEHOLDERS<br>
+          HIT COMPUTE TO FIND ALL<br>
+          LUHN-VALID CANDIDATES
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ─── NETWORK THEMES ──────────────────────────── */
+const THEMES = {
+  VISA:{
+    g0:'#0e0840',g05:'#0a0628',g1:'#04040f',radC:'rgba(99,102,241,0.1)',
+    a1:'#a5b4fc',a2:'#6366f1',a3:'#3730a3',
+    glow:'rgba(99,102,241,0.45)',glow2:'rgba(99,102,241,0.18)',
+    logo(g){g.innerHTML=`<text font-family="Arial,sans-serif" font-size="30" font-weight="900"
+      fill="rgba(255,255,255,0.88)" text-anchor="middle" dominant-baseline="central" letter-spacing="-1">VISA</text>`;}
+  },
+  MASTERCARD:{
+    g0:'#2a0800',g05:'#1a0500',g1:'#090400',radC:'rgba(249,115,22,0.08)',
+    a1:'#fdba74',a2:'#f97316',a3:'#c2410c',
+    glow:'rgba(249,115,22,0.45)',glow2:'rgba(249,115,22,0.18)',
+    logo(g){g.innerHTML=`
+      <circle cx="-15" cy="0" r="20" fill="#eb001b" opacity=".88"/>
+      <circle cx="15"  cy="0" r="20" fill="#f79e1b" opacity=".88"/>
+      <path d="M0,-16 Q14,0 0,16 Q-14,0 0,-16Z" fill="#ff5f00" opacity=".8"/>`;}
+  },
+  AMEX:{
+    g0:'#001a30',g05:'#00101e',g1:'#00070f',radC:'rgba(56,189,248,0.08)',
+    a1:'#7dd3fc',a2:'#0ea5e9',a3:'#0369a1',
+    glow:'rgba(14,165,233,0.45)',glow2:'rgba(14,165,233,0.18)',
+    logo(g){g.innerHTML=`<text font-family="Arial,sans-serif" font-size="10" font-weight="700"
+      fill="rgba(125,211,252,0.9)" text-anchor="middle" dominant-baseline="central" letter-spacing="1">AMERICAN<tspan x="0" dy="12">EXPRESS</tspan></text>`;}
+  },
+  DISCOVER:{
+    g0:'#1a1000',g05:'#100a00',g1:'#070500',radC:'rgba(251,191,36,0.08)',
+    a1:'#fde68a',a2:'#f59e0b',a3:'#b45309',
+    glow:'rgba(245,158,11,0.45)',glow2:'rgba(245,158,11,0.18)',
+    logo(g){g.innerHTML=`<circle cx="0" cy="0" r="20" fill="#f97316" opacity=".8"/>
+      <text font-family="Arial,sans-serif" font-size="9" font-weight="700"
+        fill="white" text-anchor="middle" dominant-baseline="central" letter-spacing="0.5">DISC</text>`;}
+  },
+  DEFAULT:{
+    g0:'#0f0d08',g05:'#0a0905',g1:'#050503',radC:'rgba(201,153,58,0.08)',
+    a1:'#f0d07a',a2:'#c9993a',a3:'#7a5c12',
+    glow:'rgba(201,153,58,0.42)',glow2:'rgba(122,92,18,0.18)',
+    logo(g){g.innerHTML='';}
+  }
+};
+
+let allResults=[],displayResults=[],selectedEl=null,currentSort='asc',currentNet='DEFAULT';
+let activeWorker=null;
+
+/* ─── INLINE WORKER CODE ─── */
+const WORKER_SRC=`
+function luhn(a){
+  let s=0,alt=false;
+  for(let i=a.length-1;i>=0;i--){
+    let n=a[i];
+    if(alt){n<<=1;if(n>9)n-=9;}
+    s+=n;alt=!alt;
+  }
+  return s%10===0;
+}
+self.onmessage=function(e){
+  const {tpl,qpos,total}=e.data;
+  const arr=tpl.slice();
+  const q=qpos.length;
+  const found=[];
+  const CHUNK=80000;
+  for(let i=0;i<total;i++){
+    let n=i;
+    for(let k=0;k<q;k++){arr[qpos[k]]=n%10;n=(n/10)|0;}
+    if(luhn(arr))found.push(arr.join(''));
+    if((i&(CHUNK-1))===CHUNK-1){
+      self.postMessage({type:'p',done:i+1,total});
+    }
+  }
+  self.postMessage({type:'d',found});
+};
+`;
+
+const panInput=document.getElementById('panInput');
+panInput.addEventListener('input',onInput);
+panInput.addEventListener('keydown',e=>{if(e.key==='Enter')runSolve();});
+
+function detectCard(s){
+  const d=s.replace(/[^0-9]/g,'');
+  if(/^4/.test(d))return'VISA';
+  if(/^5[1-5]/.test(d))return'MASTERCARD';
+  if(/^3[47]/.test(d))return'AMEX';
+  if(/^6011/.test(d))return'DISCOVER';
+  return'DEFAULT';
+}
+
+function applyTheme(net){
+  if(net===currentNet)return;
+  currentNet=net;
+  const t=THEMES[net]||THEMES.DEFAULT;
+  document.getElementById('cg0').setAttribute('stop-color',t.g0);
+  document.getElementById('cg05').setAttribute('stop-color',t.g05);
+  document.getElementById('cg1').setAttribute('stop-color',t.g1);
+  document.getElementById('radC').setAttribute('stop-color',t.radC);
+  THEMES[net].logo(document.getElementById('netLogo'));
+  const r=document.documentElement.style;
+  r.setProperty('--a1',t.a1);r.setProperty('--a2',t.a2);r.setProperty('--a3',t.a3);
+  r.setProperty('--glow',t.glow);r.setProperty('--glow2',t.glow2);
+  const logo=document.getElementById('hdLogo');
+  logo.style.background=`linear-gradient(135deg,${t.a3},${t.a2},${t.a1})`;
+  logo.style.boxShadow=`0 0 20px ${t.glow},inset 0 1px 0 rgba(255,255,255,0.22)`;
+}
+
+function updateCardSvg(raw){
+  const clean=raw.replace(/\s/g,'');
+  const net=detectCard(clean);
+  applyTheme(net);
+  document.getElementById('infoType').textContent=(net==='DEFAULT')?'—':net;
+  document.getElementById('infoBin').textContent=clean.replace(/\?/g,'').slice(0,6)||'—';
+  let chars=clean.replace(/[^0-9?]/g,'').slice(0,16).split('');
+  while(chars.length<16)chars.push('•');
+  const disp=[chars.slice(0,4),chars.slice(4,8),chars.slice(8,12),chars.slice(12,16)]
+    .map(g=>g.join('')).join('  ');
+  document.getElementById('cvNum').textContent=disp;
+}
+
+function onInput(){
+  const v=panInput.value;
+  updateCardSvg(v);updateMeta(v);updateRunBtn(v);
+}
+function clearInput(){panInput.value='';onInput();panInput.focus();}
+function setPreset(v){panInput.value=v;onInput();}
+
+function updateMeta(raw){
+  const clean=raw.replace(/\s/g,'');
+  const q=(clean.match(/\?/g)||[]).length;
+  const d=clean.replace(/[^0-9?]/g,'').length;
+  const c=Math.pow(10,q);
+  document.getElementById('metaCount').textContent=d+' digits';
+  document.getElementById('metaCombos').textContent=q?c.toLocaleString()+' combos':'';
+  document.getElementById('infoQ').textContent=q;
+  document.getElementById('infoCombos').textContent=q?c.toLocaleString():'—';
+}
+function updateRunBtn(raw){
+  const clean=raw.replace(/\s/g,'');
+  const q=(clean.match(/\?/g)||[]).length;
+  const d=clean.replace(/[^0-9?]/g,'').length;
+  document.getElementById('runBtn').disabled=!(d>=12&&q>=1&&q<=10);
+}
+
+function buildWorkerPayload(raw){
+  const digits=raw.replace(/\s/g,'').replace(/[^0-9?]/g,'').slice(0,16);
+  const tpl=[];const qpos=[];
+  for(let i=0;i<digits.length;i++){
+    if(digits[i]==='?'){qpos.push(i);tpl.push(0);}
+    else tpl.push(parseInt(digits[i]));
+  }
+  return{tpl,qpos,total:Math.pow(10,qpos.length)};
+}
+
+function runSolve(){
+  if(activeWorker){activeWorker.terminate();activeWorker=null;}
+  const raw=panInput.value.replace(/\s/g,'');
+  const q=(raw.match(/\?/g)||[]).length;
+  if(!q)return;
+  const {tpl,qpos,total}=buildWorkerPayload(raw);
+
+  const btn=document.getElementById('runBtn');
+  const progWrap=document.getElementById('progWrap');
+  const progBar=document.getElementById('progBar');
+  const list=document.getElementById('resultsList');
+
+  btn.disabled=true;btn.classList.add('loading');
+  btn.innerHTML='<span class="btn-icon">⟳</span> Computing…';
+  progWrap.style.display='block';progBar.style.width='0%';
+  list.innerHTML='';
+  document.getElementById('sortWrap').style.display='none';
+  document.getElementById('copyAllBtn').style.display='none';
+  document.getElementById('filterBar').style.display='none';
+  document.getElementById('limitWarn').style.display='none';
+  document.getElementById('luhnStrip').style.display='none';
+  document.getElementById('resCount').textContent='Computing…';
+  allResults=[];displayResults=[];selectedEl=null;
+
+  /* ── WARN if > 10M ── */
+  const HARD_CAP=10_000_000;
+  const effective=Math.min(total,HARD_CAP);
+
+  if(total>HARD_CAP){
+    const lw=document.getElementById('limitWarn');
+    lw.style.display='block';
+    lw.textContent='⚠ '+total.toLocaleString()+' total — scanning first '+HARD_CAP.toLocaleString();
+  }
+
+  /* ── Spawn worker ── */
+  const blob=new Blob([WORKER_SRC],{type:'text/javascript'});
+  const url=URL.createObjectURL(blob);
+  activeWorker=new Worker(url);
+  URL.revokeObjectURL(url);
+
+  activeWorker.onmessage=function(e){
+    const{type,done,found}=e.data;
+    if(type==='p'){
+      progBar.style.width=Math.round(done/effective*100)+'%';
+    } else if(type==='d'){
+      allResults=found;
+      progBar.style.width='100%';
+      setTimeout(()=>{
+        progWrap.style.display='none';progBar.style.width='0%';
+        btn.disabled=false;btn.classList.remove('loading');
+        btn.innerHTML='<span class="btn-icon">▶</span> Compute All Candidates';
+        if(!found.length){
+          list.innerHTML='<div class="no-results">NO LUHN-VALID CANDIDATES FOUND<br>CHECK YOUR INPUT FORMAT</div>';
+          document.getElementById('resCount').textContent='No results';
+          return;
+        }
+        currentSort='asc';
+        document.querySelectorAll('.sp').forEach(b=>b.classList.remove('active'));
+        document.getElementById('spAsc').classList.add('active');
+        document.getElementById('sortWrap').style.display='flex';
+        document.getElementById('copyAllBtn').style.display='inline-block';
+        document.getElementById('filterBar').style.display='flex';
+        document.getElementById('filterInput').value='';
+        applySort('asc',true);
+      },80);
+      activeWorker=null;
+    }
+  };
+
+  activeWorker.onerror=function(err){
+    btn.disabled=false;btn.classList.remove('loading');
+    btn.innerHTML='<span class="btn-icon">▶</span> Compute All Candidates';
+    progWrap.style.display='none';
+    showToast('Worker error — falling back');
+    activeWorker=null;
+    runSolveFallback(raw,effective);
+  };
+
+  activeWorker.postMessage({tpl,qpos,total:effective});
+}
+
+/* Fallback for browsers without Blob Worker support */
+async function runSolveFallback(raw,effective){
+  const digits=raw.replace(/\s/g,'').replace(/[^0-9?]/g,'').slice(0,16);
+  const qpos=[];
+  for(let i=0;i<digits.length;i++)if(digits[i]==='?')qpos.push(i);
+  const arr=[...digits].map(c=>c==='?'?0:parseInt(c));
+  const q=qpos.length;
+  const found=[];
+  const CHUNK=20000;
+  const progBar=document.getElementById('progBar');
+  for(let i=0;i<effective;i+=CHUNK){
+    const end=Math.min(i+CHUNK,effective);
+    for(let j=i;j<end;j++){
+      let n=j;
+      for(let k=0;k<q;k++){arr[qpos[k]]=n%10;n=(n/10)|0;}
+      if(luhnArr(arr))found.push(arr.join(''));
+    }
+    progBar.style.width=Math.round(end/effective*100)+'%';
+    await new Promise(r=>setTimeout(r,0));
+  }
+  allResults=found;
+  document.getElementById('progWrap').style.display='none';
+  const btn=document.getElementById('runBtn');
+  btn.disabled=false;btn.classList.remove('loading');
+  btn.innerHTML='<span class="btn-icon">▶</span> Compute All Candidates';
+  if(!found.length){
+    document.getElementById('resultsList').innerHTML='<div class="no-results">NO LUHN-VALID CANDIDATES FOUND</div>';
+    return;
+  }
+  applySort('asc',true);
+}
+function luhnArr(a){
+  let s=0,alt=false;
+  for(let i=a.length-1;i>=0;i--){let n=a[i];if(alt){n<<=1;if(n>9)n-=9;}s+=n;alt=!alt;}
+  return s%10===0;
+}
+
+/* ─── DISPLAY CONSTANTS ── */
+const MAX_RENDER=10_000;
+
+function applySort(mode,skipFilter){
+  currentSort=mode;
+  document.querySelectorAll('.sp').forEach(b=>b.classList.remove('active'));
+  const map={asc:'spAsc',desc:'spDesc',last:'spLast',even:'spEven',odd:'spOdd'};
+  document.getElementById(map[mode]).classList.add('active');
+  let sorted=[...allResults];
+  if(mode==='asc')  sorted.sort((a,b)=>a<b?-1:a>b?1:0);
+  if(mode==='desc') sorted.sort((a,b)=>b<a?-1:b>a?1:0);
+  if(mode==='last') sorted.sort((a,b)=>a.slice(-4)<b.slice(-4)?-1:1);
+  if(mode==='even') sorted.sort((a,b)=>{const ae=+a.slice(-1)%2===0,be=+b.slice(-1)%2===0;return ae===be?0:ae?-1:1;});
+  if(mode==='odd')  sorted.sort((a,b)=>{const ao=+a.slice(-1)%2!==0,bo=+b.slice(-1)%2!==0;return ao===bo?0:ao?-1:1;});
+  displayResults=sorted;
+  if(skipFilter)renderResults(sorted);
+  else applyFilter();
+}
+
+function applyFilter(){
+  const q=document.getElementById('filterInput').value.trim().replace(/\s/g,'');
+  const filtered=q?displayResults.filter(n=>n.includes(q)):displayResults;
+  document.getElementById('filterCount').textContent=filtered.length+' shown';
+  renderResults(filtered);
+}
+
+function renderResults(nums){
+  const list=document.getElementById('resultsList');
+  const rc=document.getElementById('resCount');
+  if(!nums.length){
+    list.innerHTML='<div class="no-results">NO RESULTS MATCH FILTER</div>';
+    rc.textContent='0 of '+allResults.length;return;
+  }
+  /* Cap render to avoid DOM bottleneck */
+  const capped=nums.length>MAX_RENDER;
+  const show=capped?nums.slice(0,MAX_RENDER):nums;
+
+  const lw=document.getElementById('limitWarn');
+  if(capped){
+    lw.style.display='block';
+    lw.textContent='⚠ Displaying first '+MAX_RENDER.toLocaleString()+' of '+nums.length.toLocaleString()+' results — use filter to narrow';
+  }
+
+  rc.innerHTML='<strong>'+allResults.length.toLocaleString()+'</strong> candidates';
+
+  /* Batch DOM insertion with DocumentFragment */
+  const frag=document.createDocumentFragment();
+  for(let idx=0;idx<show.length;idx++){
+    const num=show[idx];
+    const grouped=num.match(/.{1,4}/g).join('  ');
+    const item=document.createElement('div');
+    item.className='result-item';
+    item.style.animationDelay=Math.min(idx*.008,.3)+'s';
+    item.innerHTML=
+      '<span class="ri-num">'+grouped+'</span>'+
+      '<span class="ri-badge">LUHN ✓</span>'+
+      '<span class="ri-idx">#'+(idx+1)+'</span>'+
+      '<button class="ri-copy" title="Copy">⎘</button>';
+    item.querySelector('.ri-copy').addEventListener('click',e=>{e.stopPropagation();copyText(num);});
+    item.addEventListener('click',()=>{
+      if(selectedEl)selectedEl.classList.remove('sel');
+      item.classList.add('sel');selectedEl=item;
+      showLuhn(num);
+      document.getElementById('cvNum').textContent=num.match(/.{1,4}/g).join('  ');
+    });
+    frag.appendChild(item);
+  }
+  list.innerHTML='';
+  list.appendChild(frag);
+}
+
+function showLuhn(num){
+  const strip=document.getElementById('luhnStrip');
+  const cells=document.getElementById('luhnCells');
+  strip.style.display='block';
+  let alt=false;
+  const steps=[];
+  for(let i=num.length-1;i>=0;i--){
+    let n=parseInt(num[i]),orig=n;
+    if(alt){n*=2;if(n>9)n-=9;}
+    steps.unshift({orig,val:n,dbl:alt});alt=!alt;
+  }
+  const sum=steps.reduce((a,s)=>a+s.val,0);
+  cells.innerHTML=steps.map(s=>
+    '<div class="lc'+(s.dbl?' dbl':'')+'">'+
+    '<div class="lc-top">'+s.orig+'</div>'+
+    '<div class="lc-bot">'+(s.dbl?(s.val!==s.orig?'×2='+s.val:'='+s.val):'—')+'</div>'+
+    '</div>'
+  ).join('')+'<div class="luhn-sum">Σ='+sum+' → mod10=0 ✓</div>';
+}
+
+function copyText(txt){
+  navigator.clipboard.writeText(txt)
+    .then(()=>showToast('Copied to clipboard'))
+    .catch(()=>{const t=document.createElement('textarea');t.value=txt;document.body.appendChild(t);t.select();document.execCommand('copy');document.body.removeChild(t);showToast('Copied!');});
+}
+function copyAll(){
+  if(!displayResults.length)return;
+  copyText(displayResults.join('\n'));
+  showToast(displayResults.length.toLocaleString()+' numbers copied');
+}
+function showToast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),2200);
+}
+</script>
+</body>
+</html>
